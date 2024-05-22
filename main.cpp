@@ -1,32 +1,45 @@
-#include <vector>
-#include <fstream>
-#include <map>
 #include <filesystem>
+#include <fstream>
 #include <future>
+#include <map>
 #include <mutex>
 #include <print>
 #include <regex>
+#include <vector>
 
-#include <libudev.h>
 #include "/usr/include/linux/input.h"
+#include <libudev.h>
 
 using namespace std;
 namespace fs = std::filesystem;
+
+const char *LOG_PATH = "./key.data";
 
 ofstream logfile;
 mutex writer;
 
 void listen(fs::path path) {
+  // Assume little endian. Key data stored in uint64_t like this:
+  //
+  // |--------|-|-------------------------------------------------------|
+  // ^keycode  ^released or pressed        ^timestamp
+  //
+  // 8 bits for keycode, 1 bit to indicate release or press (referred to as the
+  // state), and 55 bits for timestamp in microseconds (safe until year Sep 16,
+  // 3111).
+
   ifstream ifs(path, ios::binary);
 
   struct input_event ev;
   while (ifs.read((char *)&ev, sizeof(struct input_event))) {
-    uint64_t timestamp = ev.time.tv_sec * 1e6 + ev.time.tv_usec;
+    uint64_t data = ev.time.tv_sec * 1e6 + ev.time.tv_usec;
+    data |= ((uint64_t)ev.code << 56) | ((uint64_t)ev.value << 55);
 
-    // Key release or press?
+    // Key released or pressed?
     if ((ev.value == 0 || ev.value == 1) && ev.type == 1) {
       lock_guard<mutex> lock(writer);
-      println("{} {} {}", timestamp, ev.value, ev.code);
+      logfile.write((char *)&data, 8);
+      logfile.flush();
     }
   }
 }
@@ -82,7 +95,9 @@ void refresh() {
 }
 
 int main() {
-  logfile = ofstream("/home/kjc/stats/key.data", ios::binary | ios::app);
+  logfile = ofstream(LOG_PATH, ios::binary | ios::app);
+
+  refresh();
 
   auto *udev = udev_new();
   auto *mon = udev_monitor_new_from_netlink(udev, "udev");
