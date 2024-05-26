@@ -1,4 +1,6 @@
 import sys
+from datetime import datetime
+import matplotlib.pyplot as plt
 import struct
 
 # scraped from /usr/include/linux/input-event-codes.h
@@ -254,14 +256,20 @@ KEY_MICMUTE = 248
 
 keymap = {v: k for k, v in globals().items() if k.startswith('KEY')}
 
-cnt = 0
+data = {}
 with open(sys.argv[1], 'rb') as fp:
     while chunk := fp.read(8):
-        (data,) = struct.unpack('<Q', chunk)
-        code = (data >> 56) & 0xFF
-        state = (data >> 55) & 0x01
-        timestamp = data & 0x007FFFFFFFFFFFFF
+        (n,) = struct.unpack('<Q', chunk)
+        code = (n >> 56) & 0xFF
+        state = (n >> 55) & 0x01
+        timestamp = n & 0x007FFFFFFFFFFFFF
 
         # print(keymap[code])
-        cnt += state == 1
-print(cnt)
+
+        date = datetime.fromtimestamp(timestamp / 1e6).date()
+        if date not in data:
+            data[date] = 0
+        data[date] += state == 1
+
+plt.plot(data.keys(), data.values())
+plt.show()
