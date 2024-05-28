@@ -1,6 +1,8 @@
 import sys
+import statistics
 from datetime import datetime
 import matplotlib.pyplot as plt
+from collections import Counter
 import struct
 
 # scraped from /usr/include/linux/input-event-codes.h
@@ -257,6 +259,7 @@ KEY_MICMUTE = 248
 keymap = {v: k for k, v in globals().items() if k.startswith('KEY')}
 
 data = {}
+freqs = {}
 with open(sys.argv[1], 'rb') as fp:
     while chunk := fp.read(8):
         (n,) = struct.unpack('<Q', chunk)
@@ -264,12 +267,24 @@ with open(sys.argv[1], 'rb') as fp:
         state = (n >> 55) & 0x01
         timestamp = n & 0x007FFFFFFFFFFFFF
 
-        # print(keymap[code])
+        if keymap[code] not in {'KEY_LEFTCTRL', 'KEY_LEFTMETA'}:
+            k = keymap[code]
+            if k not in freqs:
+                freqs[k] = 0
+            freqs[k] += 1
+            date = datetime.fromtimestamp(timestamp / 1e6).date()
+            if date not in data:
+                data[date] = 0
+            data[date] += state == 1
 
-        date = datetime.fromtimestamp(timestamp / 1e6).date()
-        if date not in data:
-            data[date] = 0
-        data[date] += state == 1
+recent_data = [*data.values()][-30:]
+avg_per_day = statistics.mean(recent_data) # take average keypresses of last 30 days
+print(f'{sum(data.values()):,} keys pressed in {len(data)} days (avg: {avg_per_day:,.0f} per day)')
+print(f'PROJECTIONS: {avg_per_day * 30:,.0f} per month, {avg_per_day * 365:,.0f} per year')
+
+print()
+for k, f in Counter(freqs).most_common(20):
+    print(f'{k:>16}  {f:,}')
 
 plt.plot(data.keys(), data.values())
 plt.show()
